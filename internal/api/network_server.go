@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -262,6 +263,8 @@ func (n *NetworkServerAPI) GetRoutingProfile(ctx context.Context, req *ns.GetRou
 	if err != nil {
 		return nil, errToRPCError(err)
 	}
+
+	fmt.Printf("get rp %+v \n", rp)
 
 	resp := ns.GetRoutingProfileResponse{
 		RoutingProfile: &ns.RoutingProfile{

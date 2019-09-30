@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/brocaar/loraserver/api/as"
@@ -42,6 +43,8 @@ func (rp RoutingProfile) GetApplicationServerClient() (as.ApplicationServerServi
 // CreateRoutingProfile creates the given routing-profile.
 func CreateRoutingProfile(ctx context.Context, db sqlx.Execer, rp *RoutingProfile) error {
 	now := time.Now()
+
+	fmt.Printf("rp %+v \n", rp)
 
 	if rp.ID == uuid.Nil {
 		var err error
