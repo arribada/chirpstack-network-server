@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"strings"
-
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/grpclog"
 
@@ -59,15 +55,5 @@ func init() {
 var version string // set by the compiler
 
 func main() {
-	for _, pair := range os.Environ() {
-		d := strings.SplitN(pair, "=", 2)
-		os.Setenv(strings.ReplaceAll(strings.ReplaceAll(d[0], "_", "."), "..", "_"), strings.ReplaceAll(d[1], ";", ":"))
-	}
-
-	if os.Getenv("DEBUG") != "" {
-		for _, pair := range os.Environ() {
-			fmt.Println("pair", pair)
-		}
-	}
 	cmd.Execute(version)
 }

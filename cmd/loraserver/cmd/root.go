@@ -174,8 +174,11 @@ func viperBindEnvs(iface interface{}, parts ...string) {
 		case reflect.Struct:
 			viperBindEnvs(v.Interface(), append(parts, tv)...)
 		default:
-			key := strings.Join(append(parts, tv), ".")
-			viper.BindEnv(key)
+			// Bash doesn't allow env variable names with a dot so
+			// bind the double underscore version.
+			keyDot := strings.Join(append(parts, tv), ".")
+			keyUnderscore := strings.Join(append(parts, tv), "__")
+			viper.BindEnv(keyDot, strings.ToUpper(keyUnderscore))
 		}
 	}
 }
