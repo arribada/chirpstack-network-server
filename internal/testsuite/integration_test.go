@@ -2,6 +2,7 @@ package testsuite
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,24 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/brocaar/loraserver/api/common"
-	"github.com/brocaar/loraserver/api/geo"
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/api/ns"
-	"github.com/brocaar/loraserver/internal/api"
-	"github.com/brocaar/loraserver/internal/backend/applicationserver"
-	"github.com/brocaar/loraserver/internal/backend/controller"
-	"github.com/brocaar/loraserver/internal/backend/gateway"
-	"github.com/brocaar/loraserver/internal/backend/geolocationserver"
-	"github.com/brocaar/loraserver/internal/backend/joinserver"
-	jstest "github.com/brocaar/loraserver/internal/backend/joinserver/testclient"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/downlink"
-	"github.com/brocaar/loraserver/internal/downlink/ack"
-	"github.com/brocaar/loraserver/internal/helpers"
-	"github.com/brocaar/loraserver/internal/storage"
-	"github.com/brocaar/loraserver/internal/test"
-	"github.com/brocaar/loraserver/internal/uplink"
+	"github.com/brocaar/chirpstack-api/go/common"
+	"github.com/brocaar/chirpstack-api/go/geo"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-api/go/ns"
+	"github.com/brocaar/chirpstack-network-server/internal/api"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/applicationserver"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/controller"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/gateway"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/geolocationserver"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/joinserver"
+	jstest "github.com/brocaar/chirpstack-network-server/internal/backend/joinserver/testclient"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/downlink"
+	"github.com/brocaar/chirpstack-network-server/internal/downlink/ack"
+	"github.com/brocaar/chirpstack-network-server/internal/helpers"
+	"github.com/brocaar/chirpstack-network-server/internal/storage"
+	"github.com/brocaar/chirpstack-network-server/internal/test"
+	"github.com/brocaar/chirpstack-network-server/internal/uplink"
 	"github.com/brocaar/lorawan"
 	"github.com/brocaar/lorawan/backend"
 	loraband "github.com/brocaar/lorawan/band"
@@ -128,7 +129,7 @@ type DownlinkTXAckTest struct {
 	Name           string
 	DevEUI         lorawan.EUI64
 	DownlinkTXAck  gw.DownlinkTXAck
-	DownlinkFrames []gw.DownlinkFrame
+	DownlinkFrames storage.DownlinkFrames
 
 	Assert        []Assertion
 	ExpectedError error
@@ -659,10 +660,9 @@ func (ts *IntegrationTestSuite) AssertUplinkProprietaryTest(t *testing.T, tst Up
 // AssertDownlinkTXAckTest asserts the given downlink tx ack test.
 func (ts *IntegrationTestSuite) AssertDownlinkTXAckTest(t *testing.T, tst DownlinkTXAckTest) {
 	assert := require.New(t)
-
 	test.MustFlushRedis(storage.RedisPool())
 
-	assert.NoError(storage.SaveDownlinkFrames(context.Background(), storage.RedisPool(), tst.DevEUI, tst.DownlinkFrames))
+	assert.NoError(storage.SaveDownlinkFrames(context.Background(), storage.RedisPool(), tst.DownlinkFrames))
 
 	err := ack.HandleDownlinkTXAck(context.Background(), tst.DownlinkTXAck)
 	if err != nil {
@@ -714,11 +714,14 @@ func (ts *IntegrationTestSuite) AssertGeolocationTest(t *testing.T, fCnt uint32,
 	}
 	assert.NoError(helpers.SetUplinkTXInfoDataRate(&txInfo, 3, band.Band()))
 
+	var wg sync.WaitGroup
 	for j := range tst.RXInfo {
 		uf := ts.GetUplinkFrameForFRMPayload(*tst.RXInfo[j], txInfo, lorawan.UnconfirmedDataUp, 10, []byte{1, 2, 3, 4})
+		wg.Add(1)
 		go func(assert *require.Assertions, uf gw.UplinkFrame) {
 			err := uplink.HandleUplinkFrame(context.Background(), uf)
 			assert.NoError(err)
+			wg.Done()
 		}(assert, uf)
 	}
 
@@ -726,6 +729,7 @@ func (ts *IntegrationTestSuite) AssertGeolocationTest(t *testing.T, fCnt uint32,
 	for _, a := range tst.Assert {
 		a(assert, ts)
 	}
+	wg.Wait()
 }
 
 func (ts *IntegrationTestSuite) initConfig() {

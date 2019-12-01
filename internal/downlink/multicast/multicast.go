@@ -12,14 +12,14 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/internal/backend/gateway"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/config"
-	"github.com/brocaar/loraserver/internal/framelog"
-	"github.com/brocaar/loraserver/internal/helpers"
-	"github.com/brocaar/loraserver/internal/logging"
-	"github.com/brocaar/loraserver/internal/storage"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/gateway"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/config"
+	"github.com/brocaar/chirpstack-network-server/internal/framelog"
+	"github.com/brocaar/chirpstack-network-server/internal/helpers"
+	"github.com/brocaar/chirpstack-network-server/internal/logging"
+	"github.com/brocaar/chirpstack-network-server/internal/storage"
 	"github.com/brocaar/lorawan"
 )
 
@@ -29,6 +29,7 @@ type multicastContext struct {
 	ctx context.Context
 
 	Token              uint16
+	DownlinkFrame      gw.DownlinkFrame
 	DB                 sqlx.Ext
 	MulticastGroup     storage.MulticastGroup
 	MulticastQueueItem storage.MulticastQueueItem
@@ -44,13 +45,14 @@ var multicastTasks = []func(*multicastContext) error{
 	setTXInfo,
 	setPHYPayload,
 	sendDownlinkData,
+	saveDownlinkFrame,
 }
 
 var (
-	downlinkLockDuration time.Duration
-	schedulerInterval    time.Duration
-	installationMargin   float64
-	downlinkTXPower      int
+	multicastGatewayDelay time.Duration
+	schedulerInterval     time.Duration
+	installationMargin    float64
+	downlinkTXPower       int
 
 	// TODO: make configurable
 	classBEnqueueMargin = time.Second * 5
@@ -58,7 +60,7 @@ var (
 
 // Setup sets up the multicast package.
 func Setup(conf config.Config) error {
-	downlinkLockDuration = conf.NetworkServer.Scheduler.ClassC.DownlinkLockDuration
+	multicastGatewayDelay = conf.NetworkServer.Scheduler.ClassC.MulticastGatewayDelay
 	schedulerInterval = conf.NetworkServer.Scheduler.SchedulerInterval
 	installationMargin = conf.NetworkServer.NetworkSettings.InstallationMargin
 	downlinkTXPower = conf.NetworkServer.NetworkSettings.DownlinkTXPower
@@ -229,19 +231,33 @@ func sendDownlinkData(ctx *multicastContext) error {
 		}
 	}
 
-	downlinkFrame := gw.DownlinkFrame{
+	ctx.DownlinkFrame = gw.DownlinkFrame{
 		Token:      uint32(ctx.Token),
 		DownlinkId: downID[:],
 		TxInfo:     &ctx.TXInfo,
 		PhyPayload: phyB,
 	}
 
-	if err := gateway.Backend().SendTXPacket(downlinkFrame); err != nil {
+	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
 		return errors.Wrap(err, "send downlink frame to gateway error")
 	}
 
-	if err := framelog.LogDownlinkFrameForGateway(ctx.ctx, storage.RedisPool(), downlinkFrame); err != nil {
+	if err := framelog.LogDownlinkFrameForGateway(ctx.ctx, storage.RedisPool(), ctx.DownlinkFrame); err != nil {
 		log.WithError(err).Error("log downlink frame for gateway error")
+	}
+
+	return nil
+}
+
+func saveDownlinkFrame(ctx *multicastContext) error {
+	df := storage.DownlinkFrames{
+		MulticastGroupId: ctx.MulticastGroup.ID[:],
+		Token:            uint32(ctx.Token),
+		DownlinkFrames:   []*gw.DownlinkFrame{&ctx.DownlinkFrame},
+	}
+
+	if err := storage.SaveDownlinkFrames(ctx.ctx, storage.RedisPool(), df); err != nil {
+		return errors.Wrap(err, "save downlink-frames error")
 	}
 
 	return nil

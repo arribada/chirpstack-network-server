@@ -17,9 +17,9 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/brocaar/loraserver/api/common"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/logging"
+	"github.com/brocaar/chirpstack-api/go/common"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/logging"
 	"github.com/brocaar/lorawan"
 	loraband "github.com/brocaar/lorawan/band"
 )
@@ -177,6 +177,9 @@ type DeviceSession struct {
 
 	// Max uplink EIRP limitation.
 	UplinkMaxEIRPIndex uint8
+
+	// Delayed mac-commands.
+	MACCommandErrorCount map[lorawan.CID]int
 }
 
 // AppendUplinkHistory appends an UplinkHistory item and makes sure the list
@@ -381,21 +384,12 @@ func DeleteDeviceSession(ctx context.Context, p *redis.Pool, devEUI lorawan.EUI6
 func GetDeviceSessionsForDevAddr(ctx context.Context, p *redis.Pool, devAddr lorawan.DevAddr) ([]DeviceSession, error) {
 	var items []DeviceSession
 
-	c := p.Get()
-	defer c.Close()
-
-	devEUIs, err := redis.ByteSlices(c.Do("SMEMBERS", fmt.Sprintf(devAddrKeyTempl, devAddr)))
+	devEUIs, err := GetDevEUIsForDevAddr(ctx, p, devAddr)
 	if err != nil {
-		if err == redis.ErrNil {
-			return items, nil
-		}
-		return nil, errors.Wrap(err, "get members error")
+		return nil, err
 	}
 
-	for _, b := range devEUIs {
-		var devEUI lorawan.EUI64
-		copy(devEUI[:], b)
-
+	for _, devEUI := range devEUIs {
 		s, err := GetDeviceSession(ctx, p, devEUI)
 		if err != nil {
 			// TODO: in case not found, remove the DevEUI from the list
@@ -421,6 +415,29 @@ func GetDeviceSessionsForDevAddr(ctx context.Context, p *redis.Pool, devAddr lor
 	}
 
 	return items, nil
+}
+
+// GetDevEUIsForDevAddr returns the DevEUIs that are using the given DevAddr.
+func GetDevEUIsForDevAddr(ctx context.Context, p *redis.Pool, devAddr lorawan.DevAddr) ([]lorawan.EUI64, error) {
+	c := p.Get()
+	defer c.Close()
+
+	devEUIs, err := redis.ByteSlices(c.Do("SMEMBERS", fmt.Sprintf(devAddrKeyTempl, devAddr)))
+	if err != nil {
+		if err == redis.ErrNil {
+			return nil, nil
+		}
+		return nil, errors.Wrap(err, "get deveuis for devaddr error")
+	}
+
+	var out []lorawan.EUI64
+	for i := range devEUIs {
+		var devEUI lorawan.EUI64
+		copy(devEUI[:], devEUIs[i])
+		out = append(out, devEUI)
+	}
+
+	return out, nil
 }
 
 // GetDeviceSessionForPHYPayload returns the device-session matching the given
@@ -670,6 +687,8 @@ func deviceSessionToPB(d DeviceSession) DeviceSessionPB {
 		UplinkDwellTime_400Ms:   d.UplinkDwellTime400ms,
 		DownlinkDwellTime_400Ms: d.DownlinkDwellTime400ms,
 		UplinkMaxEirpIndex:      uint32(d.UplinkMaxEIRPIndex),
+
+		MacCommandErrorCount: make(map[uint32]uint32),
 	}
 
 	if d.AppSKeyEvelope != nil {
@@ -712,6 +731,10 @@ func deviceSessionToPB(d DeviceSession) DeviceSessionPB {
 		}
 
 		out.PendingRejoinDeviceSession = b
+	}
+
+	for k, v := range d.MACCommandErrorCount {
+		out.MacCommandErrorCount[uint32(k)] = uint32(v)
 	}
 
 	return out
@@ -764,6 +787,8 @@ func deviceSessionFromPB(d DeviceSessionPB) DeviceSession {
 		UplinkDwellTime400ms:   d.UplinkDwellTime_400Ms,
 		DownlinkDwellTime400ms: d.DownlinkDwellTime_400Ms,
 		UplinkMaxEIRPIndex:     uint8(d.UplinkMaxEirpIndex),
+
+		MACCommandErrorCount: make(map[lorawan.CID]int),
 	}
 
 	if d.LastDeviceStatusRequestTimeUnixNs > 0 {
@@ -821,6 +846,10 @@ func deviceSessionFromPB(d DeviceSessionPB) DeviceSession {
 			ds := deviceSessionFromPB(dsPB)
 			out.PendingRejoinDeviceSession = &ds
 		}
+	}
+
+	for k, v := range d.MacCommandErrorCount {
+		out.MACCommandErrorCount[lorawan.CID(k)] = int(v)
 	}
 
 	return out

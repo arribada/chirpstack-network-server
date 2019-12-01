@@ -10,15 +10,15 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/internal/backend/gateway"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/config"
-	"github.com/brocaar/loraserver/internal/framelog"
-	"github.com/brocaar/loraserver/internal/helpers"
-	"github.com/brocaar/loraserver/internal/logging"
-	"github.com/brocaar/loraserver/internal/models"
-	"github.com/brocaar/loraserver/internal/storage"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-network-server/internal/backend/gateway"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/config"
+	"github.com/brocaar/chirpstack-network-server/internal/framelog"
+	"github.com/brocaar/chirpstack-network-server/internal/helpers"
+	"github.com/brocaar/chirpstack-network-server/internal/logging"
+	"github.com/brocaar/chirpstack-network-server/internal/models"
+	"github.com/brocaar/chirpstack-network-server/internal/storage"
 	"github.com/brocaar/lorawan"
 )
 
@@ -33,7 +33,7 @@ var tasks = []func(*joinContext) error{
 	setToken,
 	setDownlinkFrame,
 	sendJoinAcceptResponse,
-	saveRemainingFrames,
+	saveFrames,
 }
 
 type joinContext struct {
@@ -259,12 +259,17 @@ func sendJoinAcceptResponse(ctx *joinContext) error {
 	return nil
 }
 
-func saveRemainingFrames(ctx *joinContext) error {
-	if len(ctx.DownlinkFrames) < 2 {
-		return nil
+func saveFrames(ctx *joinContext) error {
+	df := storage.DownlinkFrames{
+		DevEui: ctx.DeviceSession.DevEUI[:],
 	}
 
-	if err := storage.SaveDownlinkFrames(ctx.ctx, storage.RedisPool(), ctx.DeviceSession.DevEUI, ctx.DownlinkFrames[1:]); err != nil {
+	for i := range ctx.DownlinkFrames {
+		df.Token = ctx.DownlinkFrames[i].Token
+		df.DownlinkFrames = append(df.DownlinkFrames, &ctx.DownlinkFrames[i])
+	}
+
+	if err := storage.SaveDownlinkFrames(ctx.ctx, storage.RedisPool(), df); err != nil {
 		return errors.Wrap(err, "save downlink-frames error")
 	}
 

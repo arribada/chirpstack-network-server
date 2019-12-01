@@ -13,14 +13,14 @@ import (
 	context "golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/brocaar/loraserver/api/as"
-	"github.com/brocaar/loraserver/api/geo"
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/api/nc"
-	"github.com/brocaar/loraserver/internal/api/client/asclient"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/config"
-	"github.com/brocaar/loraserver/internal/migrations"
+	"github.com/brocaar/chirpstack-api/go/as"
+	"github.com/brocaar/chirpstack-api/go/geo"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-api/go/nc"
+	"github.com/brocaar/chirpstack-network-server/internal/api/client/asclient"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/config"
+	"github.com/brocaar/chirpstack-network-server/internal/migrations"
 	"github.com/brocaar/lorawan"
 	loraband "github.com/brocaar/lorawan/band"
 )
@@ -51,7 +51,7 @@ func GetConfig() config.Config {
 	}
 
 	c.Redis.URL = "redis://localhost:6379/1"
-	c.PostgreSQL.DSN = "postgres://localhost/loraserver_ns_test?sslmode=disable"
+	c.PostgreSQL.DSN = "postgres://localhost/chirpstack_ns_test?sslmode=disable"
 
 	c.NetworkServer.NetID = lorawan.NetID{3, 2, 1}
 	c.NetworkServer.DeviceSessionTTL = time.Hour
@@ -62,6 +62,7 @@ func GetConfig() config.Config {
 	c.NetworkServer.NetworkSettings.RX2DR = band.Band().GetDefaults().RX2DataRate
 	c.NetworkServer.NetworkSettings.RX1Delay = 0
 	c.NetworkServer.NetworkSettings.DownlinkTXPower = -1
+	c.NetworkServer.NetworkSettings.MaxMACCommandErrorCount = 3
 
 	c.NetworkServer.Scheduler.SchedulerInterval = time.Second
 
@@ -288,24 +289,33 @@ func (t *ApplicationClient) SetDeviceLocation(ctx context.Context, in *as.SetDev
 
 // NetworkControllerClient is a network-controller client for testing.
 type NetworkControllerClient struct {
-	HandleRXInfoChan           chan nc.HandleUplinkMetaDataRequest
+	HandleUplinkMetaDataChan   chan nc.HandleUplinkMetaDataRequest
+	HandleDownlinkMetaDataChan chan nc.HandleDownlinkMetaDataRequest
 	HandleDataUpMACCommandChan chan nc.HandleUplinkMACCommandRequest
 
 	HandleRXInfoResponse           empty.Empty
+	HandleDownlinkMetaDataResponse empty.Empty
 	HandleDataUpMACCommandResponse empty.Empty
 }
 
 // NewNetworkControllerClient returns a new NetworkControllerClient.
 func NewNetworkControllerClient() *NetworkControllerClient {
 	return &NetworkControllerClient{
-		HandleRXInfoChan:           make(chan nc.HandleUplinkMetaDataRequest, 100),
+		HandleUplinkMetaDataChan:   make(chan nc.HandleUplinkMetaDataRequest, 100),
+		HandleDownlinkMetaDataChan: make(chan nc.HandleDownlinkMetaDataRequest, 100),
 		HandleDataUpMACCommandChan: make(chan nc.HandleUplinkMACCommandRequest, 100),
 	}
 }
 
 // HandleUplinkMetaData method.
 func (t *NetworkControllerClient) HandleUplinkMetaData(ctx context.Context, in *nc.HandleUplinkMetaDataRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	t.HandleRXInfoChan <- *in
+	t.HandleUplinkMetaDataChan <- *in
+	return &empty.Empty{}, nil
+}
+
+// HandleDownlinkMetaData method.
+func (t *NetworkControllerClient) HandleDownlinkMetaData(ctx context.Context, in *nc.HandleDownlinkMetaDataRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	t.HandleDownlinkMetaDataChan <- *in
 	return &empty.Empty{}, nil
 }
 

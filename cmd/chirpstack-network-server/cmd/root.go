@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/brocaar/loraserver/internal/config"
+	"github.com/brocaar/chirpstack-network-server/internal/config"
 	"github.com/brocaar/lorawan/band"
 )
 
@@ -34,11 +35,11 @@ var bands = []string{
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "loraserver",
-	Short: "LoRa Server network-server",
-	Long: `LoRa Server is an open-source network-server, part of the LoRa Server project
-	> documentation & support: https://www.loraserver.io/loraserver/
-	> source & copyright information: https://github.com/brocaar/loraserver/`,
+	Use:   "chirpstack-network-server",
+	Short: "ChirpStack Network Server",
+	Long: `ChirpStack Network Server is an open-source LoRaWAN Network Server, part of the ChirpStack Network Server stack
+	> documentation & support: https://www.chirpstack.io/network-server/
+	> source & copyright information: https://github.com/brocaar/chirpstack-network-server/`,
 	RunE: run,
 }
 
@@ -55,8 +56,9 @@ func init() {
 	viper.SetDefault("redis.max_idle", 10)
 	viper.SetDefault("redis.idle_timeout", 5*time.Minute)
 
-	viper.SetDefault("postgresql.dsn", "postgres://localhost/loraserver_ns?sslmode=disable")
+	viper.SetDefault("postgresql.dsn", "postgres://localhost/chirpstack_ns?sslmode=disable")
 	viper.SetDefault("postgresql.automigrate", true)
+	viper.SetDefault("postgresql.max_idle_connections", 2)
 
 	viper.SetDefault("network_server.net_id", "000000")
 	viper.SetDefault("network_server.band.name", "EU_863_870")
@@ -79,11 +81,13 @@ func init() {
 	viper.SetDefault("network_server.network_settings.rx2_dr", -1)
 	viper.SetDefault("network_server.network_settings.downlink_tx_power", -1)
 	viper.SetDefault("network_server.network_settings.disable_adr", false)
+	viper.SetDefault("network_server.network_settings.max_mac_command_error_count", 3)
 
 	viper.SetDefault("network_server.gateway.backend.type", "mqtt")
 
 	viper.SetDefault("network_server.scheduler.scheduler_interval", 1*time.Second)
 	viper.SetDefault("network_server.scheduler.class_c.downlink_lock_duration", 2*time.Second)
+	viper.SetDefault("network_server.scheduler.class_c.multicast_gateway_delay", 2*time.Second)
 	viper.SetDefault("network_server.gateway.backend.mqtt.event_topic", "gateway/+/event/+")
 	viper.SetDefault("network_server.gateway.backend.mqtt.command_topic_template", "gateway/{{ .GatewayID }}/command/{{ .CommandType }}")
 	viper.SetDefault("network_server.gateway.backend.mqtt.clean_session", true)
@@ -125,16 +129,28 @@ func initConfig() {
 			log.WithError(err).WithField("config", cfgFile).Fatal("error loading config file")
 		}
 	} else {
-		viper.SetConfigName("loraserver")
+		viper.SetConfigName("chirpstack-network-server")
 		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.config/loraserver")
-		viper.AddConfigPath("/etc/loraserver")
+		viper.AddConfigPath("$HOME/.config/chirpstack-network-server")
+		viper.AddConfigPath("/etc/chirpstack-network-server")
 		if err := viper.ReadInConfig(); err != nil {
 			switch err.(type) {
 			case viper.ConfigFileNotFoundError:
-				log.Warning("No configuration file found, using defaults. See: https://www.loraserver.io/loraserver/install/config/")
+				log.Warning("No configuration file found, using defaults. See: https://www.chirpstack.io/network-server/install/config/")
 			default:
 				log.WithError(err).Fatal("read configuration file error")
+			}
+		}
+	}
+
+	for _, pair := range os.Environ() {
+		d := strings.SplitN(pair, "=", 2)
+		if strings.Contains(d[0], ".") {
+			log.Warning("Using dots in env variable is illegal and deprecated. Please use double underscore `__` for: ", d[0])
+			underscoreName := strings.ReplaceAll(d[0], ".", "__")
+			// Set only when the underscore version doesn't already exist.
+			if _, exists := os.LookupEnv(underscoreName); !exists {
+				os.Setenv(underscoreName, d[1])
 			}
 		}
 	}

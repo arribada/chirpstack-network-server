@@ -6,17 +6,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/brocaar/loraserver/api/common"
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/internal/band"
-	"github.com/brocaar/loraserver/internal/helpers"
-	"github.com/brocaar/loraserver/internal/storage"
-	"github.com/brocaar/loraserver/internal/test"
-	"github.com/brocaar/loraserver/internal/uplink"
+	"github.com/brocaar/chirpstack-api/go/common"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-api/go/nc"
+	"github.com/brocaar/chirpstack-network-server/internal/band"
+	"github.com/brocaar/chirpstack-network-server/internal/helpers"
+	"github.com/brocaar/chirpstack-network-server/internal/storage"
+	"github.com/brocaar/chirpstack-network-server/internal/test"
+	"github.com/brocaar/chirpstack-network-server/internal/uplink"
 	"github.com/brocaar/lorawan"
 	"github.com/brocaar/lorawan/backend"
 	loraband "github.com/brocaar/lorawan/band"
@@ -61,6 +63,7 @@ func (ts *OTAATestSuite) TestLW10() {
 	rxInfo := gw.UplinkRXInfo{
 		GatewayId: ts.Gateway.GatewayID[:],
 		Context:   []byte{1, 2, 3, 4},
+		Location:  &common.Location{},
 	}
 
 	txInfo := gw.UplinkTXInfo{
@@ -223,10 +226,31 @@ func (ts *OTAATestSuite) TestLW10() {
 						},
 					},
 				}, jaPHY),
-				AssertDownlinkFrameSaved(ts.Device.DevEUI, gw.DownlinkTXInfo{
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
+					GatewayId:  rxInfo.GatewayId,
+					Frequency:  txInfo.Frequency,
+					Power:      14,
+					Modulation: common.Modulation_LORA,
+					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
+						LoraModulationInfo: &gw.LoRaModulationInfo{
+							Bandwidth:             125,
+							SpreadingFactor:       12,
+							CodeRate:              "4/5",
+							PolarizationInversion: true,
+						},
+					},
+					Context: []byte{1, 2, 3, 4},
+					Timing:  gw.DownlinkTiming_DELAY,
+					TimingInfo: &gw.DownlinkTXInfo_DelayTimingInfo{
+						DelayTimingInfo: &gw.DelayTimingInfo{
+							Delay: ptypes.DurationProto(5 * time.Second),
+						},
+					},
+				}, jaPHY),
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
 					GatewayId:  rxInfo.GatewayId,
 					Frequency:  869525000,
-					Power:      14,
+					Power:      27,
 					Modulation: common.Modulation_LORA,
 					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
 						LoraModulationInfo: &gw.LoRaModulationInfo{
@@ -263,9 +287,43 @@ func (ts *OTAATestSuite) TestLW10() {
 					RX2Frequency:          band.Band().GetDefaults().RX2Frequency,
 					NbTrans:               1,
 					ReferenceAltitude:     5.6,
+					MACCommandErrorCount:  make(map[lorawan.CID]int),
 				}),
 				AssertDeviceQueueItems([]storage.DeviceQueueItem{}),
 				AssertDeviceMode(storage.DeviceModeA),
+				AssertNCHandleUplinkMetaDataRequest(nc.HandleUplinkMetaDataRequest{
+					DevEui:              ts.Device.DevEUI[:],
+					TxInfo:              &txInfo,
+					RxInfo:              []*gw.UplinkRXInfo{&rxInfo},
+					MessageType:         nc.MType_JOIN_REQUEST,
+					PhyPayloadByteCount: 23,
+				}),
+				AssertNCHandleDownlinkMetaDataRequest(nc.HandleDownlinkMetaDataRequest{
+					DevEui: ts.Device.DevEUI[:],
+					TxInfo: &gw.DownlinkTXInfo{
+						GatewayId:  rxInfo.GatewayId,
+						Frequency:  txInfo.Frequency,
+						Power:      14,
+						Modulation: common.Modulation_LORA,
+						ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
+							LoraModulationInfo: &gw.LoRaModulationInfo{
+								Bandwidth:             125,
+								SpreadingFactor:       12,
+								CodeRate:              "4/5",
+								PolarizationInversion: true,
+							},
+						},
+						Context: []byte{1, 2, 3, 4},
+						Timing:  gw.DownlinkTiming_DELAY,
+						TimingInfo: &gw.DownlinkTXInfo_DelayTimingInfo{
+							DelayTimingInfo: &gw.DelayTimingInfo{
+								Delay: ptypes.DurationProto(5 * time.Second),
+							},
+						},
+					},
+					PhyPayloadByteCount: 33,
+					MessageType:         nc.MType_JOIN_ACCEPT,
+				}),
 			},
 		},
 		{
@@ -325,10 +383,31 @@ func (ts *OTAATestSuite) TestLW10() {
 						},
 					},
 				}, jaPHY),
-				AssertDownlinkFrameSaved(ts.Device.DevEUI, gw.DownlinkTXInfo{
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
+					GatewayId:  rxInfo.GatewayId,
+					Frequency:  txInfo.Frequency,
+					Power:      14,
+					Modulation: common.Modulation_LORA,
+					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
+						LoraModulationInfo: &gw.LoRaModulationInfo{
+							Bandwidth:             125,
+							SpreadingFactor:       12,
+							CodeRate:              "4/5",
+							PolarizationInversion: true,
+						},
+					},
+					Context: []byte{1, 2, 3, 4},
+					Timing:  gw.DownlinkTiming_DELAY,
+					TimingInfo: &gw.DownlinkTXInfo_DelayTimingInfo{
+						DelayTimingInfo: &gw.DelayTimingInfo{
+							Delay: ptypes.DurationProto(5 * time.Second),
+						},
+					},
+				}, jaPHY),
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
 					GatewayId:  rxInfo.GatewayId,
 					Frequency:  869525000,
-					Power:      14,
+					Power:      27,
 					Modulation: common.Modulation_LORA,
 					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
 						LoraModulationInfo: &gw.LoRaModulationInfo{
@@ -363,6 +442,7 @@ func (ts *OTAATestSuite) TestLW10() {
 					SkipFCntValidation:    true,
 					NbTrans:               1,
 					ReferenceAltitude:     5.6,
+					MACCommandErrorCount:  make(map[lorawan.CID]int),
 				}),
 				AssertDeviceMode(storage.DeviceModeA),
 			},
@@ -613,10 +693,31 @@ func (ts *OTAATestSuite) TestLW11() {
 						},
 					},
 				}, jaPHY),
-				AssertDownlinkFrameSaved(ts.Device.DevEUI, gw.DownlinkTXInfo{
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
+					GatewayId:  rxInfo.GatewayId,
+					Frequency:  txInfo.Frequency,
+					Power:      14,
+					Modulation: common.Modulation_LORA,
+					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
+						LoraModulationInfo: &gw.LoRaModulationInfo{
+							Bandwidth:             125,
+							SpreadingFactor:       12,
+							CodeRate:              "4/5",
+							PolarizationInversion: true,
+						},
+					},
+					Context: []byte{1, 2, 3, 4},
+					Timing:  gw.DownlinkTiming_DELAY,
+					TimingInfo: &gw.DownlinkTXInfo_DelayTimingInfo{
+						DelayTimingInfo: &gw.DelayTimingInfo{
+							Delay: ptypes.DurationProto(5 * time.Second),
+						},
+					},
+				}, jaPHY),
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
 					GatewayId:  rxInfo.GatewayId,
 					Frequency:  869525000,
-					Power:      14,
+					Power:      27,
 					Modulation: common.Modulation_LORA,
 					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
 						LoraModulationInfo: &gw.LoRaModulationInfo{
@@ -653,6 +754,7 @@ func (ts *OTAATestSuite) TestLW11() {
 					RX2Frequency:          band.Band().GetDefaults().RX2Frequency,
 					NbTrans:               1,
 					ReferenceAltitude:     5.6,
+					MACCommandErrorCount:  make(map[lorawan.CID]int),
 				}),
 				AssertDeviceQueueItems([]storage.DeviceQueueItem{}),
 				AssertDeviceMode(storage.DeviceModeA),
@@ -746,10 +848,31 @@ func (ts *OTAATestSuite) TestLW11() {
 						},
 					},
 				}, jaPHY),
-				AssertDownlinkFrameSaved(ts.Device.DevEUI, gw.DownlinkTXInfo{
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
+					GatewayId:  rxInfo.GatewayId,
+					Frequency:  txInfo.Frequency,
+					Power:      14,
+					Modulation: common.Modulation_LORA,
+					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
+						LoraModulationInfo: &gw.LoRaModulationInfo{
+							Bandwidth:             125,
+							SpreadingFactor:       12,
+							CodeRate:              "4/5",
+							PolarizationInversion: true,
+						},
+					},
+					Context: []byte{1, 2, 3, 4},
+					Timing:  gw.DownlinkTiming_DELAY,
+					TimingInfo: &gw.DownlinkTXInfo_DelayTimingInfo{
+						DelayTimingInfo: &gw.DelayTimingInfo{
+							Delay: ptypes.DurationProto(5 * time.Second),
+						},
+					},
+				}, jaPHY),
+				AssertDownlinkFrameSaved(ts.Device.DevEUI, uuid.Nil, gw.DownlinkTXInfo{
 					GatewayId:  rxInfo.GatewayId,
 					Frequency:  869525000,
-					Power:      14,
+					Power:      27,
 					Modulation: common.Modulation_LORA,
 					ModulationInfo: &gw.DownlinkTXInfo_LoraModulationInfo{
 						LoraModulationInfo: &gw.LoRaModulationInfo{
@@ -787,6 +910,7 @@ func (ts *OTAATestSuite) TestLW11() {
 					RX2Frequency:          band.Band().GetDefaults().RX2Frequency,
 					NbTrans:               1,
 					ReferenceAltitude:     5.6,
+					MACCommandErrorCount:  make(map[lorawan.CID]int),
 				}),
 				AssertDeviceQueueItems([]storage.DeviceQueueItem{}),
 				AssertDeviceMode(storage.DeviceModeA),

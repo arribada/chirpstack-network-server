@@ -3,12 +3,12 @@ package config
 import (
 	"time"
 
-	"github.com/brocaar/loraserver/api/nc"
+	"github.com/brocaar/chirpstack-api/go/nc"
 	"github.com/brocaar/lorawan"
 	"github.com/brocaar/lorawan/band"
 )
 
-// Version defines the LoRa Server version.
+// Version defines the ChirpStack Network Server version.
 var Version string
 
 // Config defines the configuration structure.
@@ -18,8 +18,10 @@ type Config struct {
 	}
 
 	PostgreSQL struct {
-		DSN         string `mapstructure:"dsn"`
-		Automigrate bool
+		DSN                string `mapstructure:"dsn"`
+		Automigrate        bool
+		MaxOpenConnections int `mapstructure:"max_open_connections"`
+		MaxIdleConnections int `mapstructure:"max_idle_connections"`
 	} `mapstructure:"postgresql"`
 
 	Redis struct {
@@ -45,16 +47,19 @@ type Config struct {
 		}
 
 		NetworkSettings struct {
-			InstallationMargin    float64 `mapstructure:"installation_margin"`
-			RXWindow              int     `mapstructure:"rx_window"`
-			RX1Delay              int     `mapstructure:"rx1_delay"`
-			RX1DROffset           int     `mapstructure:"rx1_dr_offset"`
-			RX2DR                 int     `mapstructure:"rx2_dr"`
-			RX2Frequency          int     `mapstructure:"rx2_frequency"`
-			DownlinkTXPower       int     `mapstructure:"downlink_tx_power"`
-			EnabledUplinkChannels []int   `mapstructure:"enabled_uplink_channels"`
-			DisableMACCommands    bool    `mapstructure:"disable_mac_commands"`
-			DisableADR            bool    `mapstructure:"disable_adr"`
+			InstallationMargin      float64 `mapstructure:"installation_margin"`
+			RXWindow                int     `mapstructure:"rx_window"`
+			RX1Delay                int     `mapstructure:"rx1_delay"`
+			RX1DROffset             int     `mapstructure:"rx1_dr_offset"`
+			RX2DR                   int     `mapstructure:"rx2_dr"`
+			RX2Frequency            int     `mapstructure:"rx2_frequency"`
+			RX2PreferOnRX1DRLt      int     `mapstructure:"rx2_prefer_on_rx1_dr_lt"`
+			RX2PreferOnLinkBudget   bool    `mapstructure:"rx2_prefer_on_link_budget"`
+			DownlinkTXPower         int     `mapstructure:"downlink_tx_power"`
+			EnabledUplinkChannels   []int   `mapstructure:"enabled_uplink_channels"`
+			DisableMACCommands      bool    `mapstructure:"disable_mac_commands"`
+			DisableADR              bool    `mapstructure:"disable_adr"`
+			MaxMACCommandErrorCount int     `mapstructure:"max_mac_command_error_count"`
 
 			ExtraChannels []struct {
 				Frequency int
@@ -78,7 +83,8 @@ type Config struct {
 			SchedulerInterval time.Duration `mapstructure:"scheduler_interval"`
 
 			ClassC struct {
-				DownlinkLockDuration time.Duration `mapstructure:"downlink_lock_duration"`
+				DownlinkLockDuration  time.Duration `mapstructure:"downlink_lock_duration"`
+				MulticastGatewayDelay time.Duration `mapstructure:"multicast_gateway_delay"`
 			} `mapstructure:"class_c"`
 		} `mapstructure:"scheduler"`
 

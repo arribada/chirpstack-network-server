@@ -6,14 +6,16 @@ import (
 	"sort"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/brocaar/loraserver/api/as"
-	"github.com/brocaar/loraserver/api/geo"
-	"github.com/brocaar/loraserver/api/gw"
-	"github.com/brocaar/loraserver/api/nc"
-	"github.com/brocaar/loraserver/internal/storage"
+	"github.com/brocaar/chirpstack-api/go/as"
+	"github.com/brocaar/chirpstack-api/go/geo"
+	"github.com/brocaar/chirpstack-api/go/gw"
+	"github.com/brocaar/chirpstack-api/go/nc"
+	"github.com/brocaar/chirpstack-network-server/internal/downlink/ack"
+	"github.com/brocaar/chirpstack-network-server/internal/storage"
 	"github.com/brocaar/lorawan"
 	"github.com/brocaar/lorawan/backend"
 )
@@ -38,6 +40,13 @@ func AssertNFCntDown(fCnt uint32) Assertion {
 func AssertAFCntDown(fCnt uint32) Assertion {
 	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
 		assert.Equal(fCnt, ts.DeviceSession.AFCntDown)
+	}
+}
+
+// AssertMACCommandErrorCount asserts the mac-command error count.
+func AssertMACCommandErrorCount(cid lorawan.CID, count int) Assertion {
+	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
+		assert.Equal(count, ts.DeviceSession.MACCommandErrorCount[cid])
 	}
 }
 
@@ -70,18 +79,37 @@ func AssertDownlinkFrame(txInfo gw.DownlinkTXInfo, phy lorawan.PHYPayload) Asser
 		}
 
 		assert.Equal(phy, downPHY)
+
+		// ack the downlink transmission
+		assert.NoError(ack.HandleDownlinkTXAck(context.Background(), gw.DownlinkTXAck{
+			GatewayId: txInfo.GatewayId,
+			Token:     downlinkFrame.Token,
+		}))
 	}
 }
 
-func AssertDownlinkFrameSaved(devEUI lorawan.EUI64, txInfo gw.DownlinkTXInfo, phy lorawan.PHYPayload) Assertion {
+func AssertDownlinkFrameSaved(devEUI lorawan.EUI64, mcGroupID uuid.UUID, txInfo gw.DownlinkTXInfo, phy lorawan.PHYPayload) Assertion {
 	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
-		eui, downlinkFrame, err := storage.PopDownlinkFrame(context.Background(), storage.RedisPool(), lastToken)
+		frames, err := storage.GetDownlinkFrames(context.Background(), storage.RedisPool(), uint16(lastToken))
 		assert.NoError(err)
 
-		assert.Equal(devEUI, eui)
+		assert.True(len(frames.DownlinkFrames) > 0, "empty downlink-frames")
+
+		// if DevEUI is given, validate it
+		var euiNil lorawan.EUI64
+		if devEUI != euiNil {
+			assert.Equal(devEUI[:], frames.DevEui)
+		}
+
+		// if mc group id is given, validate it
+		if mcGroupID != uuid.Nil {
+			assert.Equal(mcGroupID[:], frames.MulticastGroupId)
+		}
+
+		downlinkFrame := frames.DownlinkFrames[0]
 
 		if !proto.Equal(&txInfo, downlinkFrame.TxInfo) {
-			assert.Equal(txInfo, downlinkFrame.TxInfo)
+			assert.Equal(txInfo, *downlinkFrame.TxInfo)
 		}
 
 		switch phy.MHDR.MType {
@@ -102,6 +130,10 @@ func AssertDownlinkFrameSaved(devEUI lorawan.EUI64, txInfo gw.DownlinkTXInfo, ph
 		}
 
 		assert.Equal(phy, downPHY)
+
+		// pop the frame that we have been validating, so that we can validate the next one
+		frames.DownlinkFrames = frames.DownlinkFrames[1:]
+		assert.NoError(storage.SaveDownlinkFrames(context.Background(), storage.RedisPool(), frames))
 	}
 }
 
@@ -111,7 +143,7 @@ func AssertNoDownlinkFrame(assert *require.Assertions, ts *IntegrationTestSuite)
 }
 
 func AssertNoDownlinkFrameSaved(assert *require.Assertions, ts *IntegrationTestSuite) {
-	_, _, err := storage.PopDownlinkFrame(context.Background(), storage.RedisPool(), lastToken)
+	_, err := storage.GetDownlinkFrames(context.Background(), storage.RedisPool(), uint16(lastToken))
 	assert.Equal(storage.ErrDoesNotExist, err)
 }
 
@@ -251,6 +283,26 @@ func AssertASHandleErrorRequest(req as.HandleErrorRequest) Assertion {
 func AssertNCHandleUplinkMACCommandRequest(req nc.HandleUplinkMACCommandRequest) Assertion {
 	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
 		r := <-ts.NCClient.HandleDataUpMACCommandChan
+		if !proto.Equal(&r, &req) {
+			assert.Equal(req, r)
+		}
+	}
+}
+
+// AssertNCHandleUplinkMetaDataRequest asserts the given uplink meta-data request.
+func AssertNCHandleUplinkMetaDataRequest(req nc.HandleUplinkMetaDataRequest) Assertion {
+	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
+		r := <-ts.NCClient.HandleUplinkMetaDataChan
+		if !proto.Equal(&r, &req) {
+			assert.Equal(req, r)
+		}
+	}
+}
+
+// AssertNCHandleDownlinkMetaDataRequest asserts the given downlink meta-data request.
+func AssertNCHandleDownlinkMetaDataRequest(req nc.HandleDownlinkMetaDataRequest) Assertion {
+	return func(assert *require.Assertions, ts *IntegrationTestSuite) {
+		r := <-ts.NCClient.HandleDownlinkMetaDataChan
 		if !proto.Equal(&r, &req) {
 			assert.Equal(req, r)
 		}
