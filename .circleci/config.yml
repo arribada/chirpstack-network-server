@@ -6,7 +6,7 @@ workflows:
   publish:
     jobs:
       - docker/publish:
-          containerName: loraserver
+          containerName: networkserver
           context: org-context
           filters:
             branches:
